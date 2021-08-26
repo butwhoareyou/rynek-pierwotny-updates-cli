@@ -1,0 +1,10 @@
+// Kraków
+https://rynekpierwotny.pl/api/s/v2/offers/offer/?s=offer-list
+ &display_type=1
+ &distance=5
+ &for_sale=True
+ &limited_presentation=False
+ &page=1
+ &page_size=2
+ &region=52258
+ &type=2
