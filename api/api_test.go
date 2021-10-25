@@ -14,7 +14,7 @@ func TestHttpApi_GetOffers(t *testing.T) {
 		"{\"id\":1,\"vendor\":{\"slug\":\"property-foo-bar\"},\"main_image\":{\"m_img_375x211\":\"https://example.com/1.jpg\"},\"name\":\"Wille Acme\",\"slug\":\"wille-acme-krakow-zwierzyniec\"}," +
 		"{\"id\":2,\"vendor\":{\"slug\":\"foo-bar-developer\"},\"main_image\":{\"m_img_375x211\":\"https://example.com/2.jpg\"},\"name\":\"Baz House\",\"slug\":\"baz-house-foo-kokotow\"}]}"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, mockHttpResponseBody)
+		_, _ = fmt.Fprint(w, mockHttpResponseBody)
 	}))
 	defer server.Close()
 	api := NewHttpApi(server.URL)

@@ -18,6 +18,8 @@ type OffersUpdatesCommand struct {
 func (cmd *OffersUpdatesCommand) Execute(_ []string) error {
 	log.Printf("[DEBUG] Executing offers updates command..")
 
+	resetEnv("TELEGRAM_CHAT_ID", "TELEGRAM_TOKEN")
+
 	doneCh := make(chan bool)
 	errCh := make(chan error)
 	defer func() {
