@@ -9,6 +9,7 @@ import (
 	"github.com/umputun/go-flags"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -18,7 +19,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/s/v2/offers/offer", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
-		_, _ = fmt.Fprintf(w, "{\"results\":["+
+		_, _ = fmt.Fprint(w, "{\"results\":["+
 			"{\"id\":1,\"vendor\":{\"slug\":\"bar-sp-z-oo\"},"+
 			"	\"main_image\":{\"m_img_375x211\":\"https://example.com/1.jpg\"},"+
 			"	\"name\":\"Wille Acme\",\"slug\":\"wille-acme-krakow-bronowice\","+
@@ -34,7 +35,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{fstest.MapFS{}})
+	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{sync.Mutex{}, fstest.MapFS{}})
 	require.NoError(t, err)
 
 	notifier := MockNotifier{}
@@ -90,6 +91,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 }
 
 type MockEngine struct {
+	m  sync.Mutex
 	fs fstest.MapFS
 }
 
@@ -98,10 +100,16 @@ func (m *MockEngine) CreateDirectories(_ string) error {
 }
 
 func (m *MockEngine) PathExists(path string) bool {
+	m.m.Lock()
+	defer m.m.Unlock()
+
 	return m.fs[path] != nil
 }
 
 func (m *MockEngine) Write(path string, bytes []byte) error {
+	m.m.Lock()
+	defer m.m.Unlock()
+
 	m.fs[path] = &fstest.MapFile{
 		Data: bytes,
 	}
@@ -109,15 +117,22 @@ func (m *MockEngine) Write(path string, bytes []byte) error {
 }
 
 func (m *MockEngine) Delete(path string) error {
+	m.m.Lock()
+	defer m.m.Unlock()
+
 	m.fs[path] = nil
 	return nil
 }
 
 type MockNotifier struct {
+	m      sync.Mutex
 	called []store.Offer
 }
 
 func (m *MockNotifier) Notify(offer store.Offer) error {
+	m.m.Lock()
+	defer m.m.Unlock()
+
 	m.called = append(m.called, offer)
 	return nil
 }
