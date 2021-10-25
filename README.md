@@ -1,3 +1,6 @@
+[![Build Status](https://github.com/go-pkgz/auth/workflows/build/badge.svg)](https://github.com/butwhoare-you/rynek-pierwotny-updates-cli/actions)
+[![Coverage Status](https://coveralls.io/repos/github/butwhoareyou/rynek-pierwotny-updates-cli/badge.svg?branch=master)](https://coveralls.io/github/butwhoareyou/rynek-pierwotny-updates-cli?branch=master)
+
 # RynekPierwotny Updates CLI
 
 ## Commands
