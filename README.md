@@ -19,6 +19,8 @@ rynek-pierwotny-updates-cli offers-updates \
 --fs-store-path=/path/to/dir
 ```
 
-This command will fetch all offers for provided regions.
-It will store fetched offers on file system. 
-Iterative executions compare offers with already stored on the file system and removes duplicates.
+This command fetches all offers for provided regions.
+It stores fetched offers on file system. 
+
+
+Iterative executions compare offers with already stored on the file system and a) filters out duplicates b) notifies about price changes.

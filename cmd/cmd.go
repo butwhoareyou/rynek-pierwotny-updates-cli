@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/notification"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/util"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
 	log "github.com/go-pkgz/lgr"
+	"net/http"
 	"os"
 )
 
@@ -19,16 +20,18 @@ type CommonOpts struct {
 	PrimaryMarketURL string
 	PrimaryMarketAPI api.Api
 	OfferStore       store.OfferStore
-	OfferNotifier    notification.OfferNotifier
+	OfferWriter      writer.MessageWriter
 	Clock            util.Clock
+	HttpClient       http.Client
 }
 
 func (c *CommonOpts) SetCommon(commonOpts CommonOpts) {
 	c.PrimaryMarketURL = commonOpts.PrimaryMarketURL
 	c.PrimaryMarketAPI = commonOpts.PrimaryMarketAPI
 	c.OfferStore = commonOpts.OfferStore
-	c.OfferNotifier = commonOpts.OfferNotifier
+	c.OfferWriter = commonOpts.OfferWriter
 	c.Clock = commonOpts.Clock
+	c.HttpClient = commonOpts.HttpClient
 }
 
 // resetEnv clears sensitive env vars

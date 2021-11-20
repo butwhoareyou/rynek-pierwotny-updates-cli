@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
 	"strconv"
@@ -22,10 +23,21 @@ type Offer struct {
 	AreaMax       int       `json:"area_max"`
 }
 
-type OfferStore interface {
-	Create(offer Offer) error
+func (t *Offer) CompareAveragePrices(o Offer) int {
+	dif := t.PriceMin + t.PriceMax - (o.PriceMin + o.PriceMax)
+	if dif > 0 {
+		return 1
+	}
+	if dif < 0 {
+		return -1
+	}
+	return 0
+}
 
-	Exists(offerId int64) (bool, error)
+type OfferStore interface {
+	Save(offer Offer) error
+
+	Get(offerId int64) (Offer, error)
 
 	Delete(offer Offer) error
 }
@@ -41,12 +53,15 @@ type OfferFileStore struct {
 	engine  file.Engine
 }
 
-func (f *OfferFileStore) Exists(offerId int64) (bool, error) {
-	exists := f.engine.PathExists(f.fileName(offerId))
-	return exists, nil
+func (f *OfferFileStore) Get(offerId int64) (Offer, error) {
+	b, err := f.engine.Read(f.fileName(offerId))
+	if err != nil {
+		return Offer{}, err
+	}
+	return f.deserialize(b)
 }
 
-func (f *OfferFileStore) Create(offer Offer) error {
+func (f *OfferFileStore) Save(offer Offer) error {
 	fileName := f.fileName(offer.Id)
 	content, err := f.serialize(offer)
 	if err != nil {
@@ -76,4 +91,11 @@ func (f *OfferFileStore) serialize(serializable interface{}) ([]byte, error) {
 		return []byte{}, err
 	}
 	return content, err
+}
+
+func (f *OfferFileStore) deserialize(b []byte) (Offer, error) {
+	var offer Offer
+	r := bytes.NewReader(b)
+	err := json.NewDecoder(r).Decode(&offer)
+	return offer, err
 }
