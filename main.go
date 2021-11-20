@@ -4,11 +4,11 @@ import (
 	"errors"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/cmd"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/notification"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/notification/telegram"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/util"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer/telegram"
 	log "github.com/go-pkgz/lgr"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/umputun/go-flags"
@@ -51,15 +51,16 @@ func main() {
 		}
 
 		httpClient := http.Client{}
-		offerNotifier := setupOfferNotifier(opts, botApi, httpClient)
+		offerNotifier := setupOfferNotifier(opts, botApi)
 
 		c := command.(cmd.CommonCommander)
 		c.SetCommon(cmd.CommonOpts{
 			PrimaryMarketURL: opts.PrimaryMarketPLURL,
 			PrimaryMarketAPI: api.NewHttpApi(opts.PrimaryMarketAPIPLURL),
 			OfferStore:       *offerStore,
-			OfferNotifier:    *offerNotifier,
+			OfferWriter:      *offerNotifier,
 			Clock:            util.EagerClock{},
+			HttpClient:       httpClient,
 		})
 		err = c.Execute(args)
 		if err != nil {
@@ -85,12 +86,12 @@ func setupBotApi(opts Opts) (*tgbotapi.BotAPI, error) {
 	return nil, nil
 }
 
-func setupOfferNotifier(opts Opts, botAPI *tgbotapi.BotAPI, httpClient http.Client) *notification.OfferNotifier {
-	var notifier notification.OfferNotifier
-	notifier = &notification.LogNotifier{}
+func setupOfferNotifier(opts Opts, botAPI *tgbotapi.BotAPI) *writer.MessageWriter {
+	var notifier writer.MessageWriter
+	notifier = &writer.LogWriter{}
 	if botAPI != nil && opts.TelegramChatId != 0 {
 		log.Print("[DEBUG] Telegram notifier initialized.")
-		notifier = telegram.NewNotifier(opts.TelegramChatId, botAPI, httpClient)
+		notifier = telegram.NewWriter(opts.TelegramChatId, botAPI)
 	}
 	return &notifier
 }

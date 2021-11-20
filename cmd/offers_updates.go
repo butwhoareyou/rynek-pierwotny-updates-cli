@@ -3,8 +3,12 @@ package cmd
 import (
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
 	log "github.com/go-pkgz/lgr"
 	"go.uber.org/multierr"
+	"io/ioutil"
+	"strconv"
 	"sync"
 )
 
@@ -42,15 +46,23 @@ func (cmd *OffersUpdatesCommand) Execute(_ []string) error {
 
 func (cmd *OffersUpdatesCommand) doExecute(doneCh chan<- bool, errCh chan<- error) {
 	go func() {
-		cmd.persistOffers(doneCh, errCh,
-			cmd.notifyOffersUpdates(errCh,
-				cmd.mapApiOffers(errCh,
-					cmd.filterNewOffers(errCh,
-						cmd.fetchOffers(errCh,
-							cmd.streamRegions())))))
+
+		newOffersCh, priseRiseCh, priseDropCh := cmd.orchestrateOffers(errCh,
+			cmd.mapApiOffers(errCh,
+				cmd.fetchOffers(errCh,
+					cmd.streamRegions())))
+
+		persistOffersCh := merge(
+			cmd.writeNewOffers(errCh, newOffersCh),
+			cmd.writeOffersPriceRise(errCh, priseRiseCh),
+			cmd.writeOffersPriceDrop(errCh, priseDropCh),
+		)
+
+		cmd.persistOffers(doneCh, errCh, persistOffersCh)
 	}()
 }
 
+// streamRegions sends all requested regions to the channel
 func (cmd *OffersUpdatesCommand) streamRegions() <-chan int64 {
 	regionsCh := make(chan int64)
 	go func() {
@@ -91,6 +103,7 @@ func (cmd *OffersUpdatesCommand) fetchOffers(errCh chan<- error, regionCh <-chan
 	return offersCh
 }
 
+// fetchRegionOffers fetches offers for provided region id
 func (cmd *OffersUpdatesCommand) fetchRegionOffers(errCh chan<- error, region int64, offersCh chan<- api.Offer) {
 	log.Printf("[DEBUG] Fetching orders for region %v..", region)
 
@@ -120,30 +133,6 @@ func (cmd *OffersUpdatesCommand) fetchRegionOffers(errCh chan<- error, region in
 
 		offersPage, err = cmd.PrimaryMarketAPI.GetOffersNextPage(*offersPage)
 	}
-}
-
-// filterNewOffers filters already processed offers using offer store
-func (cmd *OffersUpdatesCommand) filterNewOffers(errCh chan<- error, apiOfferCh <-chan api.Offer) <-chan api.Offer {
-	log.Printf("[DEBUG] Filtering orders..")
-
-	filteredOffersCh := make(chan api.Offer)
-	go func() {
-		defer close(filteredOffersCh)
-
-		for offer := range apiOfferCh {
-			exists, err := cmd.OfferStore.Exists(offer.Id)
-			if err != nil {
-				errCh <- err
-				continue
-			}
-
-			if !exists {
-				log.Printf("[DEBUG] Offer id %v does not exist..", offer.Id)
-				filteredOffersCh <- offer
-			}
-		}
-	}()
-	return filteredOffersCh
 }
 
 // mapApiOffers maps to domain struct
@@ -178,8 +167,48 @@ func (cmd *OffersUpdatesCommand) mapApiOffers(_ chan<- error, apiOfferCh <-chan 
 	return storeOfferCh
 }
 
-// notifyOffersUpdates sends a notification about newly processed offers
-func (cmd *OffersUpdatesCommand) notifyOffersUpdates(errCh chan<- error, offerCh <-chan store.Offer) <-chan store.Offer {
+// orchestrateOffers filters already processed offers using offer store, compares prices and redirects
+func (cmd *OffersUpdatesCommand) orchestrateOffers(errCh chan<- error, apiOfferCh <-chan store.Offer) (<-chan store.Offer, <-chan store.Offer, <-chan store.Offer) {
+	log.Printf("[DEBUG] Filtering orders..")
+
+	newOffersCh := make(chan store.Offer)
+	priceRiseCh := make(chan store.Offer)
+	priceDropCh := make(chan store.Offer)
+	go func() {
+		defer func() {
+			close(newOffersCh)
+			close(priceRiseCh)
+			close(priceDropCh)
+		}()
+
+		for offer := range apiOfferCh {
+
+			existing, err := cmd.OfferStore.Get(offer.Id)
+			if err != nil {
+				if _, ok := err.(file.NoPathError); ok {
+					log.Printf("[DEBUG] Message id %v does not exist..", offer.Id)
+					newOffersCh <- offer
+					continue
+				}
+				errCh <- err
+				continue
+			}
+
+			diff := existing.CompareAveragePrices(offer)
+
+			if diff < 0 {
+				priceRiseCh <- offer
+			}
+			if diff > 0 {
+				priceDropCh <- offer
+			}
+		}
+	}()
+	return newOffersCh, priceRiseCh, priceDropCh
+}
+
+// writeNewOffers writes an information about newly processed offers
+func (cmd *OffersUpdatesCommand) writeNewOffers(errCh chan<- error, offerCh <-chan store.Offer) <-chan store.Offer {
 	log.Printf("[DEBUG] Notifying orders updates..")
 
 	notifiedOfferCh := make(chan store.Offer)
@@ -187,8 +216,75 @@ func (cmd *OffersUpdatesCommand) notifyOffersUpdates(errCh chan<- error, offerCh
 		defer close(notifiedOfferCh)
 
 		for offer := range offerCh {
-			log.Printf("[DEBUG] Creating notification for offer id %v..", offer.Id)
-			err := cmd.OfferNotifier.Notify(offer)
+
+			b := make([]byte, 0)
+			if len(offer.MainImageLink) > 0 {
+
+				log.Printf("[DEBUG] Getting main image for offer id %v..", offer.Id)
+
+				imgResp, err := cmd.HttpClient.Get(offer.MainImageLink)
+				if err != nil {
+					errCh <- err
+					continue
+				}
+
+				b, err = ioutil.ReadAll(imgResp.Body)
+				if err != nil {
+					errCh <- err
+					continue
+				}
+			}
+
+			log.Printf("[DEBUG] Creating a notification for offer id %v..", offer.Id)
+
+			err := cmd.OfferWriter.Write(writer.Message{
+				Title: offer.MainImageLink,
+				Image: b,
+				Text: "" +
+					"🏡" + offer.Name + "\n" +
+					"📍 " + offer.RegionName + "\n" +
+					"📏 " + strconv.Itoa(offer.AreaMin) + "-" + strconv.Itoa(offer.AreaMax) + "\n" +
+					"🙀 " + strconv.FormatInt(offer.PriceMin, 10) + "-" + strconv.FormatInt(offer.PriceMax, 10) + "\n" +
+					"\n" +
+					"➡️ " + offer.Link,
+			})
+			if err != nil {
+				errCh <- err
+				continue
+			}
+			notifiedOfferCh <- offer
+		}
+	}()
+	return notifiedOfferCh
+}
+
+func (cmd *OffersUpdatesCommand) writeOffersPriceRise(errCh chan<- error, offerCh <-chan store.Offer) <-chan store.Offer {
+	return cmd.writeOffersPriceChange(errCh, offerCh, "↗️")
+}
+
+func (cmd *OffersUpdatesCommand) writeOffersPriceDrop(errCh chan<- error, offerCh <-chan store.Offer) <-chan store.Offer {
+	return cmd.writeOffersPriceChange(errCh, offerCh, "↘️")
+}
+
+// writeNewOffers writes an information about newly processed offers
+func (cmd *OffersUpdatesCommand) writeOffersPriceChange(errCh chan<- error, offerCh <-chan store.Offer, change string) <-chan store.Offer {
+	log.Printf("[DEBUG] Notifying orders updates..")
+
+	notifiedOfferCh := make(chan store.Offer)
+	go func() {
+		defer close(notifiedOfferCh)
+
+		for offer := range offerCh {
+
+			log.Printf("[DEBUG] Creating a notification for offer id %v..", offer.Id)
+
+			err := cmd.OfferWriter.Write(writer.Message{
+				Image: make([]byte, 0),
+				Text: "" +
+					"➡️ " + offer.Link + "\n" +
+					"\n" +
+					change + " " + strconv.FormatInt(offer.PriceMin, 10) + "-" + strconv.FormatInt(offer.PriceMax, 10),
+			})
 			if err != nil {
 				errCh <- err
 				continue
@@ -208,7 +304,7 @@ func (cmd *OffersUpdatesCommand) persistOffers(doneCh chan<- bool, errCh chan<- 
 
 			log.Printf("[DEBUG] Persisting store offer for id %v..", offer.Id)
 
-			err := cmd.OfferStore.Create(offer)
+			err := cmd.OfferStore.Save(offer)
 			if err != nil {
 				errCh <- err
 			}
@@ -216,4 +312,30 @@ func (cmd *OffersUpdatesCommand) persistOffers(doneCh chan<- bool, errCh chan<- 
 
 		doneCh <- true
 	}()
+}
+
+func merge(cs ...<-chan store.Offer) <-chan store.Offer {
+	var wg sync.WaitGroup
+	out := make(chan store.Offer)
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan store.Offer) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
 }
