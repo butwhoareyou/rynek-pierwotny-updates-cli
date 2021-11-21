@@ -1,8 +1,11 @@
 LICENSE
+Makefile
 *.md
 .github
-.requests
-
+.gitignore
+requests
+dist
+tools
 # generated
 *.cov
 *.prof

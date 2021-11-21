@@ -31,19 +31,23 @@ jobs:
           go test -v ./... -timeout=60s -v -race -p 1 -covermode=atomic -coverprofile=$GITHUB_WORKSPACE/profile.cov_tmp
           cat $GITHUB_WORKSPACE/profile.cov_tmp | grep -v "_mock.go" > $GITHUB_WORKSPACE/profile.cov
           go build -race
+        working-directory: app
         env:
           GO111MODULE: "on"
           TZ: "Europe/Poland"
 
       - name: install golangci-lint and goveralls
+        working-directory: app
         run: |
           curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $GITHUB_WORKSPACE v1.39.0
           GO111MODULE=off go get -u -v github.com/mattn/goveralls
 
       - name: run linters
+        working-directory: app
         run: $GITHUB_WORKSPACE/golangci-lint run
 
       - name: submit coverage
+        working-directory: app
         run: $(go env GOPATH)/bin/goveralls -service="github" -coverprofile=$GITHUB_WORKSPACE/profile.cov
         env:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}

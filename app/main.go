@@ -1,11 +1,16 @@
 package main
 
 import (
-	"errors"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	as3 "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/cmd"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine/file"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine/mock"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine/s3"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/util"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer/telegram"
@@ -25,10 +30,22 @@ type Opts struct {
 	PrimaryMarketPLURL    string `long:"url" env:"URL" required:"true" description:"RynekPierwotny.pl url"`
 	PrimaryMarketAPIPLURL string `long:"api-url" env:"API_URL" required:"true" description:"RynekPierwotny.pl api url"`
 
-	FileSystemStorePath string `long:"fs-store-path" env:"FILE_SYSTEM_STORE_PATH" required:"true" description:"file system path to directory with execution state"`
+	FileSystem struct {
+		StorePath string `long:"store-path" env:"STORE_PATH" description:"Store path to directory with execution state"`
+	} `group:"fs" namespace:"fs" env-namespace:"FS"`
 
-	TelegramChatId int64  `long:"telegram-chat-id" env:"TELEGRAM_CHAT_ID" description:"Telegram chat id notifications will be sent to"`
-	TelegramToken  string `long:"telegram-token" env:"TELEGRAM_TOKEN" description:"Telegram token will be used to send notifications"`
+	AWS struct {
+		S3 struct {
+			Bucket string `long:"bucket" env:"BUCKET" description:"Execution state store bucket"`
+		} `group:"s3" namespace:"s3" env-namespace:"S3"`
+		Endpoint string `long:"endpoint" env:"ENDPOINT" description:"Use when request is going to any s3-like storage"`
+		Region   string `long:"region" env:"REGION" description:"AWS region"`
+	} `group:"aws" namespace:"aws" env-namespace:"AWS"`
+
+	Telegram struct {
+		ChatId int64  `long:"chat-id" env:"CHAT_ID" description:"Chat id notifications will be sent to"`
+		Token  string `long:"token" env:"TOKEN" description:"Token will be used to send notifications"`
+	} `group:"telegram" namespace:"telegram" env-namespace:"TELEGRAM"`
 
 	Debug bool `long:"debug" env:"DEBUG" description:"debug mode"`
 }
@@ -39,19 +56,26 @@ func main() {
 	p.CommandHandler = func(command flags.Commander, args []string) error {
 		setupLog(opts.Debug)
 
-		engine := file.NewSystemEngine()
-		offerStore, err := setupOfferStore(opts, &engine)
+		eng, err := setupEngine(opts)
 		if err != nil {
 			log.Printf("[ERROR] failed with %+v", err)
+			return err
+		}
+
+		offerStore, err := setupOfferStore(eng)
+		if err != nil {
+			log.Printf("[ERROR] failed with %+v", err)
+			return err
 		}
 
 		botApi, err := setupBotApi(opts)
 		if err != nil {
 			log.Printf("[ERROR] failed with %+v", err)
+			return err
 		}
 
 		httpClient := http.Client{}
-		offerNotifier := setupOfferNotifier(opts, botApi)
+		offerNotifier := setupOfferWriter(opts, botApi)
 
 		c := command.(cmd.CommonCommander)
 		c.SetCommon(cmd.CommonOpts{
@@ -78,30 +102,51 @@ func main() {
 }
 
 func setupBotApi(opts Opts) (*tgbotapi.BotAPI, error) {
-	if opts.TelegramToken != "" {
+	if opts.Telegram.Token != "" {
 		log.Print("[DEBUG] Telegram token provided.")
-		return tgbotapi.NewBotAPI(opts.TelegramToken)
+		return tgbotapi.NewBotAPI(opts.Telegram.Token)
 	}
 	// ignore lack of tg bot api - it is optional
 	return nil, nil
 }
 
-func setupOfferNotifier(opts Opts, botAPI *tgbotapi.BotAPI) *writer.MessageWriter {
-	var notifier writer.MessageWriter
-	notifier = &writer.LogWriter{}
-	if botAPI != nil && opts.TelegramChatId != 0 {
-		log.Print("[DEBUG] Telegram notifier initialized.")
-		notifier = telegram.NewWriter(opts.TelegramChatId, botAPI)
+func setupOfferWriter(opts Opts, botAPI *tgbotapi.BotAPI) *writer.MessageWriter {
+	var w writer.MessageWriter
+	w = &writer.LogWriter{}
+	if botAPI != nil && opts.Telegram.ChatId != 0 {
+		log.Print("[DEBUG] Telegram writer initialized.")
+		w = telegram.NewWriter(opts.Telegram.ChatId, botAPI)
 	}
-	return &notifier
+	return &w
 }
 
-func setupOfferStore(opts Opts, engine *file.SystemEngine) (*store.OfferStore, error) {
-	if opts.FileSystemStorePath != "" {
-		fs, err := store.NewOfferFileStore(opts.FileSystemStorePath+"/offer-updates", engine)
-		return &fs, err
+func setupEngine(opts Opts) (engine.Engine, error) {
+	if opts.AWS.S3.Bucket != "" && opts.AWS.Region != "" {
+		endpoint := stringOrNil(opts.AWS.Endpoint)
+		sess, err := session.NewSession(&aws.Config{
+			Region:           aws.String(opts.AWS.Region),
+			Endpoint:         endpoint,
+			DisableSSL:       aws.Bool(endpoint != nil),
+			S3ForcePathStyle: aws.Bool(endpoint != nil),
+		})
+		if err != nil {
+			return nil, err
+		}
+		svc := as3.New(sess)
+		eng, err := s3.NewEngine(opts.AWS.S3.Bucket, svc)
+		return eng, err
 	}
-	return nil, errors.New("unable to initialize offer store")
+	if opts.FileSystem.StorePath != "" {
+		eng, err := file.NewSystemEngine(opts.FileSystem.StorePath)
+		return eng, err
+	}
+	eng := mock.NewEngine()
+	return eng, nil
+}
+
+func setupOfferStore(engine engine.Engine) (*store.OfferStore, error) {
+	fs := store.NewOfferFileStore(engine)
+	return &fs, nil
 }
 
 func setupLog(dbg bool) {
@@ -133,4 +178,11 @@ func init() {
 		}
 	}()
 	signal.Notify(sigChan, syscall.SIGQUIT)
+}
+
+func stringOrNil(s string) *string {
+	if s != "" {
+		return &s
+	}
+	return nil
 }
