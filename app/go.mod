@@ -3,6 +3,7 @@ module github.com/butwhoareyou/rynek-pierwotny-updates-cli
 go 1.16
 
 require (
+	github.com/aws/aws-sdk-go v1.42.9 // indirect
 	github.com/go-pkgz/lgr v0.10.4
 	github.com/go-telegram-bot-api/telegram-bot-api v4.6.4+incompatible
 	github.com/stretchr/testify v1.7.0

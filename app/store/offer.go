@@ -3,7 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine"
 	"strconv"
 	"time"
 )
@@ -38,19 +38,15 @@ type OfferStore interface {
 	Save(offer Offer) error
 
 	Get(offerId int64) (Offer, error)
-
-	Delete(offer Offer) error
 }
 
-func NewOfferFileStore(baseDir string, engine file.Engine) (OfferStore, error) {
-	fileStore := OfferFileStore{baseDir: baseDir, engine: engine}
-	err := fileStore.initialize()
-	return &fileStore, err
+func NewOfferFileStore(engine engine.Engine) OfferStore {
+	fileStore := OfferFileStore{engine: engine}
+	return &fileStore
 }
 
 type OfferFileStore struct {
-	baseDir string
-	engine  file.Engine
+	engine engine.Engine
 }
 
 func (f *OfferFileStore) Get(offerId int64) (Offer, error) {
@@ -69,16 +65,6 @@ func (f *OfferFileStore) Save(offer Offer) error {
 	}
 	err = f.engine.Write(fileName, content)
 	return err
-}
-
-func (f *OfferFileStore) Delete(offer Offer) error {
-	fileName := f.fileName(offer.Id)
-	err := f.engine.Delete(fileName)
-	return err
-}
-
-func (f *OfferFileStore) initialize() error {
-	return f.engine.CreateDirectories(f.baseDir)
 }
 
 func (f *OfferFileStore) fileName(offerId int64) string {

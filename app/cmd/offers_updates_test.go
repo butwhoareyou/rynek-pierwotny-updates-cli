@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
+	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine/file"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,8 +47,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 		_, _ = fmt.Fprint(w, "yey")
 	})
 
-	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{sync.Mutex{}, fstest.MapFS{}})
-	require.NoError(t, err)
+	offerStore := store.NewOfferFileStore(&MockEngine{sync.Mutex{}, fstest.MapFS{}})
 
 	notifier := MockWriter{}
 	httpClient := http.Client{}
@@ -63,7 +62,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 		HttpClient:       httpClient,
 	})
 	p := flags.NewParser(&cmd, flags.Default)
-	_, err = p.ParseArgs([]string{
+	_, err := p.ParseArgs([]string{
 		"--request.regions=1",
 	})
 	require.NoError(t, err)
@@ -80,7 +79,7 @@ func TestOffersUpdatesCommand_Execute(t *testing.T) {
 		{
 			Title: server.URL + "/2.jpg",
 			Image: []byte("yey"),
-			Text:  "🏡Wille Acme\n📍 małopolskie, Kraków, Zwierzyniec\n📏 139-373\n🙀 0-0\n\n➡️ " + server.URL + "/oferty/property-foo-bar/foo-acme-krakow-zwierzyniec-2",
+			Text:  "🏡Wille Acme\n📍 małopolskie, Kraków, Zwierzyniec\n📏 139-373\n\n➡️ " + server.URL + "/oferty/property-foo-bar/foo-acme-krakow-zwierzyniec-2",
 		},
 	})
 }
@@ -122,8 +121,7 @@ func TestOffersUpdatesCommand_Execute_NoPriceChange(t *testing.T) {
 		_, _ = fmt.Fprint(w, "yay")
 	})
 
-	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{sync.Mutex{}, fstest.MapFS{}})
-	require.NoError(t, err)
+	offerStore := store.NewOfferFileStore(&MockEngine{sync.Mutex{}, fstest.MapFS{}})
 
 	notifier := MockWriter{}
 	httpClient := http.Client{}
@@ -138,7 +136,7 @@ func TestOffersUpdatesCommand_Execute_NoPriceChange(t *testing.T) {
 		HttpClient:       httpClient,
 	})
 	p := flags.NewParser(&cmd, flags.Default)
-	_, err = p.ParseArgs([]string{
+	_, err := p.ParseArgs([]string{
 		"--request.regions=1",
 	})
 	require.NoError(t, err)
@@ -196,8 +194,7 @@ func TestOffersUpdatesCommand_Execute_PriceChange_Rise(t *testing.T) {
 		_, _ = fmt.Fprint(w, "yay")
 	})
 
-	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{sync.Mutex{}, fstest.MapFS{}})
-	require.NoError(t, err)
+	offerStore := store.NewOfferFileStore(&MockEngine{sync.Mutex{}, fstest.MapFS{}})
 
 	notifier := MockWriter{}
 	httpClient := http.Client{}
@@ -212,7 +209,7 @@ func TestOffersUpdatesCommand_Execute_PriceChange_Rise(t *testing.T) {
 		HttpClient:       httpClient,
 	})
 	p := flags.NewParser(&cmd, flags.Default)
-	_, err = p.ParseArgs([]string{
+	_, err := p.ParseArgs([]string{
 		"--request.regions=1",
 	})
 	require.NoError(t, err)
@@ -275,8 +272,7 @@ func TestOffersUpdatesCommand_Execute_PriceChange_Drop(t *testing.T) {
 		_, _ = fmt.Fprint(w, "yay")
 	})
 
-	offerStore, err := store.NewOfferFileStore("mock", &MockEngine{sync.Mutex{}, fstest.MapFS{}})
-	require.NoError(t, err)
+	offerStore := store.NewOfferFileStore(&MockEngine{sync.Mutex{}, fstest.MapFS{}})
 
 	notifier := MockWriter{}
 	httpClient := http.Client{}
@@ -291,7 +287,7 @@ func TestOffersUpdatesCommand_Execute_PriceChange_Drop(t *testing.T) {
 		HttpClient:       httpClient,
 	})
 	p := flags.NewParser(&cmd, flags.Default)
-	_, err = p.ParseArgs([]string{
+	_, err := p.ParseArgs([]string{
 		"--request.regions=1",
 	})
 	require.NoError(t, err)
@@ -322,10 +318,6 @@ type MockEngine struct {
 	fs fstest.MapFS
 }
 
-func (m *MockEngine) CreateDirectories(_ string) error {
-	return nil
-}
-
 func (m *MockEngine) Read(path string) ([]byte, error) {
 	m.m.Lock()
 	defer m.m.Unlock()
@@ -337,11 +329,11 @@ func (m *MockEngine) Read(path string) ([]byte, error) {
 	return m.fs[path].Data, nil
 }
 
-func (m *MockEngine) Exists(path string) bool {
+func (m *MockEngine) Exists(path string) (bool, error) {
 	m.m.Lock()
 	defer m.m.Unlock()
 
-	return m.fs[path] != nil
+	return m.fs[path] != nil, nil
 }
 
 func (m *MockEngine) Write(path string, bytes []byte) error {
@@ -351,14 +343,6 @@ func (m *MockEngine) Write(path string, bytes []byte) error {
 	m.fs[path] = &fstest.MapFile{
 		Data: bytes,
 	}
-	return nil
-}
-
-func (m *MockEngine) Delete(path string) error {
-	m.m.Lock()
-	defer m.m.Unlock()
-
-	m.fs[path] = nil
 	return nil
 }
 

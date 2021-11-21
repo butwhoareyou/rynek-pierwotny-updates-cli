@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/api"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store"
-	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/file"
+	file "github.com/butwhoareyou/rynek-pierwotny-updates-cli/store/engine/file"
 	"github.com/butwhoareyou/rynek-pierwotny-updates-cli/writer"
 	log "github.com/go-pkgz/lgr"
 	"go.uber.org/multierr"
@@ -20,9 +20,9 @@ type OffersUpdatesCommand struct {
 }
 
 func (cmd *OffersUpdatesCommand) Execute(_ []string) error {
-	log.Printf("[DEBUG] Executing offers updates command..")
+	resetEnv("TELEGRAM_CHAT_ID", "TELEGRAM_TOKEN", "AWS_ACCESS_KEY", "AWS_SECRET_KET")
 
-	resetEnv("TELEGRAM_CHAT_ID", "TELEGRAM_TOKEN")
+	log.Printf("[DEBUG] Executing offers updates command..")
 
 	doneCh := make(chan bool)
 	errCh := make(chan error)
@@ -237,16 +237,20 @@ func (cmd *OffersUpdatesCommand) writeNewOffers(errCh chan<- error, offerCh <-ch
 
 			log.Printf("[DEBUG] Creating a notification for offer id %v..", offer.Id)
 
+			txt := "" +
+				"🏡" + offer.Name + "\n" +
+				"📍 " + offer.RegionName + "\n" +
+				"📏 " + strconv.Itoa(offer.AreaMin) + "-" + strconv.Itoa(offer.AreaMax) + "\n"
+			if offer.PriceMin > 0 || offer.PriceMax > 0 {
+				txt = txt + "🙀 " + strconv.FormatInt(offer.PriceMin, 10) + "-" + strconv.FormatInt(offer.PriceMax, 10) + "\n"
+			}
+			txt = txt + "\n" +
+				"➡️ " + offer.Link
+
 			err := cmd.OfferWriter.Write(writer.Message{
 				Title: offer.MainImageLink,
 				Image: b,
-				Text: "" +
-					"🏡" + offer.Name + "\n" +
-					"📍 " + offer.RegionName + "\n" +
-					"📏 " + strconv.Itoa(offer.AreaMin) + "-" + strconv.Itoa(offer.AreaMax) + "\n" +
-					"🙀 " + strconv.FormatInt(offer.PriceMin, 10) + "-" + strconv.FormatInt(offer.PriceMax, 10) + "\n" +
-					"\n" +
-					"➡️ " + offer.Link,
+				Text:  txt,
 			})
 			if err != nil {
 				errCh <- err

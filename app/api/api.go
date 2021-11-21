@@ -20,7 +20,7 @@ const (
 )
 
 type PageableOffersRequest struct {
-	PageSize int32
+	PageSize int
 	Region   int64
 	Sort     string
 }
@@ -82,7 +82,7 @@ func (api *httpApi) GetOffers(request PageableOffersRequest) (*PageableOffers, e
 	queryParams.Add("for_sale", "True")
 	queryParams.Add("limited_presentation", "True")
 	queryParams.Add("page", "1")
-	queryParams.Add("page_size", string(request.PageSize))
+	queryParams.Add("page_size", strconv.Itoa(request.PageSize))
 	queryParams.Add("region", strconv.FormatInt(request.Region, 10))
 	queryParams.Add("show_on_listing", "True")
 	queryParams.Add("sort", request.Sort)
