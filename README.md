@@ -11,16 +11,14 @@
 
 ```shell
 rynek-pierwotny-updates-cli offers-updates \
---request.regions=1 \
---url=https://rynekpierwotny.pl \
---api-url=https://rynekpierwotny.pl/api \
---telegram-chat-id=123 \ 
---telegram-token="TOKEN" \
---fs-store-path=/path/to/dir
+--aws.region="eu-west-1" \
+--aws.s3.bucket="offer-updates-1" \
+--aws.endpoint="http://localhost:9000" \
+--request.regions=120 \
+--url="https://rynekpierwotny.pl" \
+--api-url="https://rynekpierwotny.pl/api" \
+--debug
 ```
 
 This command fetches all offers for provided regions.
-It stores fetched offers on file system. 
-
-
-Iterative executions compare offers with already stored on the file system and a) filters out duplicates b) notifies about price changes.
+It stores fetched offers in local S3-like storage (min.io)
