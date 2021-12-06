@@ -3,7 +3,6 @@ Makefile
 *.md
 .github
 .gitignore
-requests
 dist
 tools
 # generated
