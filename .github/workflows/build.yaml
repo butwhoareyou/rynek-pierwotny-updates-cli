@@ -4,7 +4,13 @@ on:
   push:
     tags:
     branches:
-  pull_request: { }
+    paths:
+      - 'app/**'
+      - 'Dockerfile'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'Dockerfile'
 
 jobs:
   build:
